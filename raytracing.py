@@ -24,16 +24,19 @@ SOFTWARE.
 
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn import clone
 
-w = 400
-h = 300
+w = 1920  # 400
+h = 1080  # 300
+
 
 def normalize(x):
     x /= np.linalg.norm(x)
     return x
 
+
 def intersect_plane(O, D, P, N):
-    # Return the distance from O to the intersection of the ray (O, D) with the 
+    # Return the distance from O to the intersection of the ray (O, D) with the
     # plane (P, N), or +inf if there is no intersection.
     # O and P are 3D points, D and N (normal) are normalized vectors.
     denom = np.dot(D, N)
@@ -44,8 +47,9 @@ def intersect_plane(O, D, P, N):
         return np.inf
     return d
 
+
 def intersect_sphere(O, D, S, R):
-    # Return the distance from O to the intersection of the ray (O, D) with the 
+    # Return the distance from O to the intersection of the ray (O, D) with the
     # sphere (S, R), or +inf if there is no intersection.
     # O and S are 3D points, D (direction) is a normalized vector, R is a scalar.
     a = np.dot(D, D)
@@ -63,11 +67,13 @@ def intersect_sphere(O, D, S, R):
             return t1 if t0 < 0 else t0
     return np.inf
 
+
 def intersect(O, D, obj):
     if obj['type'] == 'plane':
         return intersect_plane(O, D, obj['position'], obj['normal'])
     elif obj['type'] == 'sphere':
         return intersect_sphere(O, D, obj['position'], obj['radius'])
+
 
 def get_normal(obj, M):
     # Find normal.
@@ -76,12 +82,14 @@ def get_normal(obj, M):
     elif obj['type'] == 'plane':
         N = obj['normal']
     return N
-    
+
+
 def get_color(obj, M):
     color = obj['color']
     if not hasattr(color, '__len__'):
         color = color(M)
     return color
+
 
 def trace_ray(rayO, rayD):
     # Find first point of intersection with the scene.
@@ -103,8 +111,8 @@ def trace_ray(rayO, rayD):
     toL = normalize(L - M)
     toO = normalize(O - M)
     # Shadow: find if the point is shadowed or not.
-    l = [intersect(M + N * .0001, toL, obj_sh) 
-            for k, obj_sh in enumerate(scene) if k != obj_idx]
+    l = [intersect(M + N * .0001, toL, obj_sh)
+         for k, obj_sh in enumerate(scene) if k != obj_idx]
     if l and min(l) < np.inf:
         return
     # Start computing the color.
@@ -115,25 +123,32 @@ def trace_ray(rayO, rayD):
     col_ray += obj.get('specular_c', specular_c) * max(np.dot(N, normalize(toL + toO)), 0) ** specular_k * color_light
     return obj, M, N, col_ray
 
-def add_sphere(position, radius, color):
-    return dict(type='sphere', position=np.array(position), 
-        radius=np.array(radius), color=np.array(color), reflection=.5)
-    
+
+
+def add_sphere(position, radius, color,
+               refraction_coef=0.):
+    # Here refraction coef is difference between squares of refraction coefficients of 2 environments
+    # n_2 ** 2 - n_1 ** 2.
+    return dict(type='sphere', position=np.array(position),
+                radius=np.array(radius), color=np.array(color), reflection=.5, refraction_coef=refraction_coef)
+
+
 def add_plane(position, normal):
-    return dict(type='plane', position=np.array(position), 
-        normal=np.array(normal),
-        color=lambda M: (color_plane0 
-            if (int(M[0] * 2) % 2) == (int(M[2] * 2) % 2) else color_plane1),
-        diffuse_c=.75, specular_c=.5, reflection=.25)
-    
+    return dict(type='plane', position=np.array(position),
+                normal=np.array(normal),
+                color=lambda M: (color_plane0
+                                 if (int(M[0] * 2) % 2) == (int(M[2] * 2) % 2) else color_plane1),
+                diffuse_c=.75, specular_c=.5, reflection=.25)
+
+
 # List of objects.
 color_plane0 = 1. * np.ones(3)
-color_plane1 = 0. * np.ones(3)
-scene = [add_sphere([.75, .1, 1.], .6, [0., 0., 1.]),
-         add_sphere([-.75, .1, 2.25], .6, [.5, .223, .5]),
-         add_sphere([-2.75, .1, 3.5], .6, [1., .572, .184]),
+color_plane1 = np.array([0., 0., 1.])
+scene = [add_sphere([.75, .1, 1.], .6, [0., 0., 1.], 0.96),
+         add_sphere([-.75, .1, 2.25], .6, [.5, .223, .5], 0.96),
+         add_sphere([-2.75, .1, 3.5], .6, [1., .572, .184], 0.),
          add_plane([0., -.5, 0.], [0., 1., 0.]),
-    ]
+         ]
 
 # Light position and color.
 L = np.array([5., 5., -10.])
@@ -155,28 +170,52 @@ r = float(w) / h
 # Screen coordinates: x0, y0, x1, y1.
 S = (-1., -1. / r + .25, 1., 1. / r + .25)
 
+
+def tracing(rayO, rayD, reflection, refract, col, depth):
+    # Continue until limit of reflections is reached
+    if depth >= depth_max:
+        return
+    traced = trace_ray(rayO, rayD)
+    if not traced:
+        return      # Error
+
+    obj, M, N, col_ray = traced
+
+    # Reflection: create a new ray.
+    rayO_refl, rayD_refl = M + N * .0001, normalize(rayD - 2 * np.dot(rayD, N) * N)
+    col += reflection * col_ray
+    reflection *= obj.get('reflection', 1.)
+    # Processing of created reflected ray
+    if tracing(rayO_refl, rayD_refl, reflection, refract, col, depth + 1):
+        return
+
+    # Refraction: create a new ray.
+    rayO_refr, rayD_refr = M - refract * N * .0001, rayD + \
+                           (np.sqrt(refract * obj.get('refraction_coef', 1.) / np.dot(rayD, N) ** 2 + 1) - 1) * \
+                           (np.dot(rayD, N) * N)
+    if rayD_refr is None:
+        return
+    # Processing of created refracted ray; -1 for transition between environments
+    if tracing(rayO_refr, rayD_refr, reflection, refract * (-1), col, depth + 1):
+        return
+
+    return
+
+
 # Loop through all pixels.
 for i, x in enumerate(np.linspace(S[0], S[2], w)):
     if i % 10 == 0:
-        print i / float(w) * 100, "%"
+        print(i / float(w) * 100, "%")
     for j, y in enumerate(np.linspace(S[1], S[3], h)):
         col[:] = 0
         Q[:2] = (x, y)
         D = normalize(Q - O)
         depth = 0
         rayO, rayD = O, D
-        reflection = 1.
-        # Loop through initial and secondary rays.
-        while depth < depth_max:
-            traced = trace_ray(rayO, rayD)
-            if not traced:
-                break
-            obj, M, N, col_ray = traced
-            # Reflection: create a new ray.
-            rayO, rayD = M + N * .0001, normalize(rayD - 2 * np.dot(rayD, N) * N)
-            depth += 1
-            col += reflection * col_ray
-            reflection *= obj.get('reflection', 1.)
+        reflection = .7
+        refract = 1.
+
+        tracing(rayO, rayD, reflection, refract, col, depth)
         img[h - j - 1, i, :] = np.clip(col, 0, 1)
 
-plt.imsave('fig.png', img)
+plt.imsave('fig_final.png', img)
