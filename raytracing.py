@@ -141,6 +141,36 @@ def add_plane(position, normal):
                 diffuse_c=.75, specular_c=.5, reflection=.25)
 
 
+def tracing(rayO, rayD, reflection, refract, col, depth):
+    # Continue until limit of reflections is reached
+    if depth >= depth_max:
+        return
+    traced = trace_ray(rayO, rayD)
+    if not traced:
+        return      # Error
+
+    obj, M, N, col_ray = traced
+
+    # Reflection: create a new ray.
+    rayO_refl, rayD_refl = M + N * .0001, normalize(rayD - 2 * np.dot(rayD, N) * N)
+    col += reflection * col_ray
+    reflection *= obj.get('reflection', 1.)
+    # Processing of created reflected ray
+    if tracing(rayO_refl, rayD_refl, reflection, refract, col, depth + 1):
+        return
+
+    # Refraction: create a new ray.
+    rayO_refr, rayD_refr = M - refract * N * .0001, rayD + \
+                           (np.sqrt(refract * obj.get('refraction_coef', 1.) / np.dot(rayD, N) ** 2 + 1) - 1) * \
+                           (np.dot(rayD, N) * N)
+    if rayD_refr is None:
+        return
+    # Processing of created refracted ray; -1 for transition between environments
+    if tracing(rayO_refr, rayD_refr, reflection, refract * (-1), col, depth + 1):
+        return
+    return
+
+
 # List of objects.
 color_plane0 = 1. * np.ones(3)
 color_plane1 = np.array([0., 0., 1.])
@@ -169,38 +199,6 @@ img = np.zeros((h, w, 3))
 r = float(w) / h
 # Screen coordinates: x0, y0, x1, y1.
 S = (-1., -1. / r + .25, 1., 1. / r + .25)
-
-
-def tracing(rayO, rayD, reflection, refract, col, depth):
-    # Continue until limit of reflections is reached
-    if depth >= depth_max:
-        return
-    traced = trace_ray(rayO, rayD)
-    if not traced:
-        return      # Error
-
-    obj, M, N, col_ray = traced
-
-    # Reflection: create a new ray.
-    rayO_refl, rayD_refl = M + N * .0001, normalize(rayD - 2 * np.dot(rayD, N) * N)
-    col += reflection * col_ray
-    reflection *= obj.get('reflection', 1.)
-    # Processing of created reflected ray
-    if tracing(rayO_refl, rayD_refl, reflection, refract, col, depth + 1):
-        return
-
-    # Refraction: create a new ray.
-    rayO_refr, rayD_refr = M - refract * N * .0001, rayD + \
-                           (np.sqrt(refract * obj.get('refraction_coef', 1.) / np.dot(rayD, N) ** 2 + 1) - 1) * \
-                           (np.dot(rayD, N) * N)
-    if rayD_refr is None:
-        return
-    # Processing of created refracted ray; -1 for transition between environments
-    if tracing(rayO_refr, rayD_refr, reflection, refract * (-1), col, depth + 1):
-        return
-
-    return
-
 
 # Loop through all pixels.
 for i, x in enumerate(np.linspace(S[0], S[2], w)):
