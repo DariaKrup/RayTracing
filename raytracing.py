@@ -148,7 +148,7 @@ def refract_ray(vect, n, coef):
     return (a * vect) - (b * n)
 
 
-def ray_trace(rayO, rayD, reflection, col, depth, refract):
+def tracing(rayO, rayD, reflection, col, depth, refract):
     if depth >= depth_max:
         return
 
@@ -161,7 +161,7 @@ def ray_trace(rayO, rayD, reflection, col, depth, refract):
 
     # Reflection: create a new ray.
     rayO1, rayD1 = M + N * refract * .0001, normalize(rayD - 2 * np.dot(rayD, N) * N)
-    if ray_trace(rayO1, rayD1, reflection * obj.get('reflection', 1.), col, depth + 1, refract):
+    if tracing(rayO1, rayD1, reflection * obj.get('reflection', 1.), col, depth + 1, refract):
         return
 
     # Refraction: create a new ray.
@@ -169,7 +169,7 @@ def ray_trace(rayO, rayD, reflection, col, depth, refract):
     if dir is None:
         return
     rayO_afterRefr, rayD_afterRefr = M - N * refract * .0001, rayD_r
-    if ray_trace(rayO_afterRefr, rayD_afterRefr, reflection * obj.get('transparency', 1.), col, depth + 1, refract * (-1)):
+    if tracing(rayO_afterRefr, rayD_afterRefr, reflection * obj.get('transparency', 1.), col, depth + 1, refract * (-1)):
         return
 
     return
@@ -218,7 +218,7 @@ for i, x in enumerate(np.linspace(S[0], S[2], w)):
         rayO, rayD = O, D
         reflection = 1.
         refract = 1
-        ray_trace(rayO, rayD, reflection, col, depth, refract)
+        tracing(rayO, rayD, reflection, col, depth, refract)
         img[h - j - 1, i, :] = np.clip(col, 0, 1)
 
 plt.imsave('fig_final_new.png', img)
